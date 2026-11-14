@@ -46,7 +46,7 @@ jobs:
               id 'java'
               id 'net.neoforged.moddev' version '2.0.78'
           }
-          version = '1.1.0'
+          version = '1.2.0'
           group = 'com.multibogey'
           base { archivesName = 'multibogey' }
           java.toolchain.languageVersion = JavaLanguageVersion.of(21)
@@ -69,7 +69,7 @@ jobs:
 
           [[mods]]
           modId = "multibogey"
-          version = "1.1.0"
+          version = "1.2.0"
           displayName = "Multi Bogey Trains"
           description = '''Experimental addon for Create: aims to allow more than two bogeys per carriage and articulated, curve-following wagons.'''
           logoFile = "logo.png"
@@ -121,7 +121,7 @@ jobs:
 
               public static final ModConfigSpec.IntValue MAX_BOGEYS = B
                       .comment("Maximum bogeys allowed on one carriage when assembling (Create default is 2)")
-                      .defineInRange("maxBogeysPerCarriage", 4, 2, 16);
+                      .defineInRange("maxBogeysPerCarriage", 4, 1, 9000);
 
               public static final ModConfigSpec SPEC = B.build();
 
