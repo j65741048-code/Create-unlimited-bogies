@@ -1,30 +1,174 @@
-name: Build
+name: Build Multi Bogey Mod
+
+# Put this file at .github/workflows/build.yml in an empty GitHub repo.
+# It generates the entire mod (code, metadata, icon) and builds the jar.
+
 on:
   push:
-  pull_request:
   workflow_dispatch:
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 21
+
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: 8.10.2
-      - name: Find project folder
-        id: find
+
+      - name: Generate project files
         run: |
-          f=$(find . -name settings.gradle -not -path './.git/*' | head -n1)
-          if [ -z "$f" ]; then echo "::error::settings.gradle not found - upload the project files to the repo"; ls -R | head -50; exit 1; fi
-          echo "dir=$(dirname "$f")" >> "$GITHUB_OUTPUT"
+          mkdir -p src/main/java/com/multibogey/mixin
+          mkdir -p src/main/resources/META-INF
+
+          cat > settings.gradle <<'EOF'
+          pluginManagement {
+              repositories {
+                  gradlePluginPortal()
+                  maven { url = 'https://maven.neoforged.net/releases' }
+              }
+          }
+          rootProject.name = 'multibogey'
+          EOF
+
+          cat > gradle.properties <<'EOF'
+          org.gradle.jvmargs=-Xmx2G
+          EOF
+
+          cat > build.gradle <<'EOF'
+          plugins {
+              id 'java'
+              id 'net.neoforged.moddev' version '2.0.78'
+          }
+          version = '1.0.0'
+          group = 'com.multibogey'
+          base { archivesName = 'multibogey' }
+          java.toolchain.languageVersion = JavaLanguageVersion.of(21)
+          repositories {
+              mavenCentral()
+              maven { url = 'https://maven.neoforged.net/releases' }
+          }
+          neoForge {
+              version = '21.1.172'
+              mods {
+                  multibogey { sourceSet sourceSets.main }
+              }
+          }
+          EOF
+
+          cat > src/main/resources/META-INF/neoforge.mods.toml <<'EOF'
+          modLoader = "javafml"
+          loaderVersion = "[4,)"
+          license = "MIT"
+
+          [[mods]]
+          modId = "multibogey"
+          version = "1.0.0"
+          displayName = "Multi Bogey Trains"
+          description = '''Experimental addon for Create: aims to allow more than two bogeys per carriage and articulated, curve-following wagons.'''
+          logoFile = "logo.png"
+          authors = "You"
+
+          [[mixins]]
+          config = "multibogey.mixins.json"
+
+          [[dependencies.multibogey]]
+          modId = "neoforge"
+          type = "required"
+          versionRange = "[21.1,)"
+          ordering = "NONE"
+          side = "BOTH"
+
+          [[dependencies.multibogey]]
+          modId = "minecraft"
+          type = "required"
+          versionRange = "[1.21.1,1.22)"
+          ordering = "NONE"
+          side = "BOTH"
+
+          [[dependencies.multibogey]]
+          modId = "create"
+          type = "required"
+          versionRange = "[6.0.0,)"
+          ordering = "AFTER"
+          side = "BOTH"
+          EOF
+
+          cat > src/main/resources/multibogey.mixins.json <<'EOF'
+          {
+            "required": false,
+            "minVersion": "0.8",
+            "package": "com.multibogey.mixin",
+            "compatibilityLevel": "JAVA_21",
+            "mixins": ["CarriageMixin"],
+            "injectors": { "defaultRequire": 0 }
+          }
+          EOF
+
+          cat > src/main/java/com/multibogey/MultiBogey.java <<'EOF'
+          package com.multibogey;
+
+          import net.neoforged.fml.common.Mod;
+          import org.slf4j.Logger;
+          import org.slf4j.LoggerFactory;
+
+          @Mod("multibogey")
+          public class MultiBogey {
+              public static final Logger LOGGER = LoggerFactory.getLogger("multibogey");
+
+              public MultiBogey() {
+                  LOGGER.info("Multi Bogey Trains loaded (experimental).");
+              }
+          }
+          EOF
+
+          # Pseudo mixin: targets Create by string name so the build never
+          # depends on Create's internals. Real multi-bogey / articulation
+          # logic has to be implemented here.
+          cat > src/main/java/com/multibogey/mixin/CarriageMixin.java <<'EOF'
+          package com.multibogey.mixin;
+
+          import org.spongepowered.asm.mixin.Mixin;
+          import org.spongepowered.asm.mixin.Pseudo;
+
+          @Pseudo
+          @Mixin(targets = "com.simibubi.create.content.trains.entity.Carriage", remap = false)
+          public abstract class CarriageMixin {
+              // TODO: extend Carriage beyond leading/trailing bogey and make
+              // wagon sections follow track curves (articulation).
+          }
+          EOF
+
+      - name: Generate icon
+        run: |
+          pip install pillow
+          python3 - <<'EOF'
+          from PIL import Image, ImageDraw
+          img = Image.new("RGBA", (128, 128), (40, 44, 52, 255))
+          d = ImageDraw.Draw(img)
+          d.rectangle([0, 92, 128, 98], fill=(120, 120, 130, 255))
+          for x in range(4, 128, 16):
+              d.rectangle([x, 98, x + 8, 106], fill=(110, 78, 46, 255))
+          d.rectangle([10, 44, 56, 78], fill=(200, 60, 50, 255))
+          d.rectangle([60, 44, 118, 78], fill=(60, 120, 200, 255))
+          d.rectangle([56, 58, 60, 64], fill=(230, 230, 230, 255))
+          for cx in (20, 34, 48, 72, 90, 108):
+              d.ellipse([cx - 6, 80, cx + 6, 92], fill=(30, 30, 30, 255), outline=(220, 220, 220, 255))
+          d.rectangle([20, 32, 30, 44], fill=(70, 70, 70, 255))
+          d.ellipse([18, 18, 34, 32], fill=(235, 235, 235, 200))
+          img.save("src/main/resources/logo.png")
+          EOF
+
       - name: Build
-        working-directory: ${{ steps.find.outputs.dir }}
-        run: gradle build --no-daemon --stacktrace
+        run: gradle build --no-daemon
+
       - uses: actions/upload-artifact@v4
         with:
-          name: longtrains-jar
-          path: "**/build/libs/*.jar"
+          name: multibogey-mod
+          path: build/libs/*.jar
