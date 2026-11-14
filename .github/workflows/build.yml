@@ -24,16 +24,30 @@ jobs:
         with:
           gradle-version: '8.8'
 
-      - name: Find Mod Folder & Build
+      - name: Unzip & Build Mod
         run: |
-          GRADLE_FILE=$(find . -maxdepth 3 -name "build.gradle" -o -name "build.gradle.kts" | head -n 1)
+          # Automatically extract any zip files in the repo
+          for z in *.zip; do
+            if [ -f "$z" ]; then
+              echo "Extracting $z..."
+              unzip -o "$z"
+            fi
+          done
+
+          # Search anywhere in the repo for build.gradle
+          GRADLE_FILE=$(find . -name "build.gradle" -o -name "build.gradle.kts" | head -n 1)
+
           if [ -z "$GRADLE_FILE" ]; then
-            echo "Error: Could not find build.gradle anywhere in the repository!"
+            echo "Error: Could not find build.gradle!"
+            echo "Here are the files currently in your repository:"
+            find . -maxdepth 3 -not -path '*/.*'
             exit 1
           fi
+
           MOD_DIR=$(dirname "$GRADLE_FILE")
           echo "Found mod in: $MOD_DIR"
           cd "$MOD_DIR"
+
           if [ -f "./gradlew" ]; then
             chmod +x gradlew
             ./gradlew build
