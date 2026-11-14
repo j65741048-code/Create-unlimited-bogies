@@ -1,7 +1,6 @@
 name: Build
 on:
   push:
-    branches: [main]
   pull_request:
   workflow_dispatch:
 jobs:
@@ -16,9 +15,16 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: 8.10.2
+      - name: Find project folder
+        id: find
+        run: |
+          f=$(find . -name settings.gradle -not -path './.git/*' | head -n1)
+          if [ -z "$f" ]; then echo "::error::settings.gradle not found - upload the project files to the repo"; ls -R | head -50; exit 1; fi
+          echo "dir=$(dirname "$f")" >> "$GITHUB_OUTPUT"
       - name: Build
-        run: gradle build --no-daemon
+        working-directory: ${{ steps.find.outputs.dir }}
+        run: gradle build --no-daemon --stacktrace
       - uses: actions/upload-artifact@v4
         with:
           name: longtrains-jar
-          path: build/libs/*.jar
+          path: "**/build/libs/*.jar"
