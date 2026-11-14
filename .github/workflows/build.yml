@@ -46,7 +46,7 @@ jobs:
               id 'java'
               id 'net.neoforged.moddev' version '2.0.78'
           }
-          version = '1.0.0'
+          version = '1.1.0'
           group = 'com.multibogey'
           base { archivesName = 'multibogey' }
           java.toolchain.languageVersion = JavaLanguageVersion.of(21)
@@ -69,7 +69,7 @@ jobs:
 
           [[mods]]
           modId = "multibogey"
-          version = "1.0.0"
+          version = "1.1.0"
           displayName = "Multi Bogey Trains"
           description = '''Experimental addon for Create: aims to allow more than two bogeys per carriage and articulated, curve-following wagons.'''
           logoFile = "logo.png"
@@ -106,15 +106,41 @@ jobs:
             "minVersion": "0.8",
             "package": "com.multibogey.mixin",
             "compatibilityLevel": "JAVA_21",
-            "mixins": ["CarriageMixin"],
+            "mixins": ["CarriageContraptionMixin"],
             "injectors": { "defaultRequire": 0 }
+          }
+          EOF
+
+          cat > src/main/java/com/multibogey/Config.java <<'EOF'
+          package com.multibogey;
+
+          import net.neoforged.neoforge.common.ModConfigSpec;
+
+          public class Config {
+              private static final ModConfigSpec.Builder B = new ModConfigSpec.Builder();
+
+              public static final ModConfigSpec.IntValue MAX_BOGEYS = B
+                      .comment("Maximum bogeys allowed on one carriage when assembling (Create default is 2)")
+                      .defineInRange("maxBogeysPerCarriage", 4, 2, 16);
+
+              public static final ModConfigSpec SPEC = B.build();
+
+              public static int maxBogeys() {
+                  try {
+                      return MAX_BOGEYS.get();
+                  } catch (Throwable t) {
+                      return 4;
+                  }
+              }
           }
           EOF
 
           cat > src/main/java/com/multibogey/MultiBogey.java <<'EOF'
           package com.multibogey;
 
+          import net.neoforged.fml.ModContainer;
           import net.neoforged.fml.common.Mod;
+          import net.neoforged.fml.config.ModConfig;
           import org.slf4j.Logger;
           import org.slf4j.LoggerFactory;
 
@@ -122,26 +148,67 @@ jobs:
           public class MultiBogey {
               public static final Logger LOGGER = LoggerFactory.getLogger("multibogey");
 
-              public MultiBogey() {
+              public MultiBogey(ModContainer container) {
+                  container.registerConfig(ModConfig.Type.COMMON, Config.SPEC);
                   LOGGER.info("Multi Bogey Trains loaded (experimental).");
               }
           }
           EOF
 
-          # Pseudo mixin: targets Create by string name so the build never
-          # depends on Create's internals. Real multi-bogey / articulation
-          # logic has to be implemented here.
-          cat > src/main/java/com/multibogey/mixin/CarriageMixin.java <<'EOF'
+          # Client: open the config in Create's config screen (BaseConfigScreen),
+          # falling back to NeoForge's own config screen if it can't be found.
+          cat > src/main/java/com/multibogey/MultiBogeyClient.java <<'EOF'
+          package com.multibogey;
+
+          import net.minecraft.client.gui.screens.Screen;
+          import net.neoforged.api.distmarker.Dist;
+          import net.neoforged.fml.ModContainer;
+          import net.neoforged.fml.common.Mod;
+          import net.neoforged.neoforge.client.gui.ConfigurationScreen;
+          import net.neoforged.neoforge.client.gui.IConfigScreenFactory;
+
+          @Mod(value = "multibogey", dist = Dist.CLIENT)
+          public class MultiBogeyClient {
+              public MultiBogeyClient(ModContainer container) {
+                  container.registerExtensionPoint(IConfigScreenFactory.class,
+                          (c, parent) -> createScreen(c, parent));
+              }
+
+              private static Screen createScreen(ModContainer c, Screen parent) {
+                  String[] names = {
+                      "net.createmod.catnip.config.ui.BaseConfigScreen",
+                      "com.simibubi.create.foundation.config.ui.BaseConfigScreen"
+                  };
+                  for (String n : names) {
+                      try {
+                          return (Screen) Class.forName(n)
+                                  .getConstructor(Screen.class, String.class)
+                                  .newInstance(parent, "multibogey");
+                      } catch (Throwable ignored) {
+                      }
+                  }
+                  return new ConfigurationScreen(c, parent);
+              }
+          }
+          EOF
+
+          # Raises the hard-coded "more than 2 bogeys" limit in Create's assembly check.
+          cat > src/main/java/com/multibogey/mixin/CarriageContraptionMixin.java <<'EOF'
           package com.multibogey.mixin;
 
+          import com.multibogey.Config;
           import org.spongepowered.asm.mixin.Mixin;
           import org.spongepowered.asm.mixin.Pseudo;
+          import org.spongepowered.asm.mixin.injection.Constant;
+          import org.spongepowered.asm.mixin.injection.ModifyConstant;
 
           @Pseudo
-          @Mixin(targets = "com.simibubi.create.content.trains.entity.Carriage", remap = false)
-          public abstract class CarriageMixin {
-              // TODO: extend Carriage beyond leading/trailing bogey and make
-              // wagon sections follow track curves (articulation).
+          @Mixin(targets = "com.simibubi.create.content.trains.entity.CarriageContraption", remap = false)
+          public abstract class CarriageContraptionMixin {
+              @ModifyConstant(method = "assemble", constant = @Constant(intValue = 2), remap = false, require = 0)
+              private int multibogey$maxBogeys(int original) {
+                  return Config.maxBogeys();
+              }
           }
           EOF
 
